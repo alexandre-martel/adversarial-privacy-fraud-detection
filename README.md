@@ -1,6 +1,6 @@
-# Adversarial Fraud Detection XGBoost & Logistic Regression
+# Adversarial Fraud Detection on MLP
 
-A credit card fraud detection project using XGBoost and Logistic Regression that implements defenses against three issues: adversarial attacks (FGSM), privacy attacks, and bias mitigation
+A credit card fraud detection project using MLP that implements defenses against three issues: adversarial attacks (FGSM), privacy attacks (DG-SDG), and bias mitigation
 
 ## Explanations and Mathematical Theory
 
@@ -20,4 +20,23 @@ A credit card fraud detection project using XGBoost and Logistic Regression that
 ### Bias & Mitigation 
 
 ## Download and Run
+
+### Run baselines 
+
+Run training of the baseline MLP model and summarize on val/test data.
+
+```bash
+python src/baselines/baseline.py
+```
+
+Arguments : 
+
+| Argument | Description | Default |
+| :--- | :--- | :--- |
+| `--data-path` | Path for the data in data/filename.csv | `data/creditcard.csv` |
+| `--seed` | Seed for randomness | `9` |
+| `--learning-rate` | Learning rate of the trainng **XGBoost model only** | `0.05` |
+
+
+
 
