@@ -52,16 +52,16 @@ def main():
     parser.add_argument("--model_folder", type=str, default="baseline_model", help="Folder where the baseline model and preprocessing objects are saved")
     args = parser.parse_args()
 
-    X_test = np.load(f"../../{args.model_folder}/X_test.npy")
-    y_test = np.load(f"../../{args.model_folder}/y_test.npy")
-    scaler = joblib.load(f"../../{args.model_folder}/scaler.joblib")
+    X_test = np.load(f"{args.model_folder}/X_test.npy")
+    y_test = np.load(f"{args.model_folder}/y_test.npy")
+    scaler = joblib.load(f"{args.model_folder}/scaler.joblib")
 
-    q = np.load(f"../../{args.model_folder}/q_bounds.npz")
+    q = np.load(f"{args.model_folder}/q_bounds.npz")
     q_low, q_high = q["low"], q["high"]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = MLP(in_dim=X_test.shape[1]).to(device)
-    state = torch.load(f"../../{args.model_folder}/mlp_baseline.pt", map_location=device)
+    state = torch.load(f"{args.model_folder}/mlp_baseline.pt", map_location=device)
 
     model.load_state_dict(state)
 
@@ -94,7 +94,7 @@ def main():
     adv_probs = []
     adv_targets = []
     for xb, yb in test_loader:
-        Xb_adv = fgsm_attack_batch(model, loss_fn, xb, yb, args.epsilon, low, high, device)
+        Xb_adv = fgsm_attack_batch(model, loss_fn, xb, yb, args.epsilon, low, high)
         with torch.no_grad():
             p = torch.sigmoid(model(Xb_adv)).cpu().numpy()
         adv_probs.append(p)
@@ -114,7 +114,7 @@ def main():
         return 0.0 if (tp+fn)==0 else tp/(tp+fn)
     r_before = recall_pos(ys, y_pred_clean)
     r_after  = recall_pos(adv_targets, y_pred_adv)
-    print(f"\nDelta Recall (fraud class) under FGSM: {r_after - r_before:+.4f} (before={r_before:.4f}, after={r_after:.4f})")
+    print(f"\nVariation of the Recall (fraud class) under FGSM: {r_after - r_before:+.4f} (before={r_before:.4f}, after={r_after:.4f})")
 
 
 if __name__ == "__main__":
