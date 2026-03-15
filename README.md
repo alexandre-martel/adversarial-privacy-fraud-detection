@@ -22,12 +22,27 @@ The datset used for this project is the following :
 
 ## Download and Run
 
+### Downloads
+
+Download the Github
+
+```bash
+git clone https://github.com/alexandre-martel/adversarial-privacy-fraud-detection.git
+cd adversarial-privacy-fraud-detection
+```
+
+Doawnload the dataset Credit Card Fraud Detection
+
+```bash
+python -m src.utils -d
+```
+
 ### Run baselines 
 
 Run training of the baseline MLP model and summarize on val/test data.
 
 ```bash
-python src/baselines/baseline.py
+python -m src.baselines.baseline_mlp
 ```
 
 Arguments : 
