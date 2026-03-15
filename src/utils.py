@@ -1,6 +1,11 @@
 import numpy as np
 import pandas as pd
 import torch
+import kagglehub
+import argparse
+import os
+import shutil
+from pathlib import Path
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -87,5 +92,50 @@ def summarize(y_true, y_proba, title="Metrics"):
     print(f"ROC-AUC              : {roc}")
     print(f"PR-AUC (pos)         : {pr}\n")
     print("Classification report:\n", classification_report(y_true, y_pred, zero_division=0))
-    print("Confusion matrix:\n", confusion_matrix(y_true, y_pred)
-)
+    print("Confusion matrix:\n", confusion_matrix(y_true, y_pred))
+
+
+def download_creditcard_dataset():
+    data_dir = "data"
+    print("Downloading dataset via kagglehub...")
+    raw_path = kagglehub.dataset_download("mlg-ulb/creditcardfraud")
+    print("Downloaded to :", raw_path)
+
+    data_path = Path(data_dir)
+    data_path.mkdir(parents=True, exist_ok=True)
+
+    csv_candidates = list(Path(raw_path).rglob("creditcard.csv"))
+    if not csv_candidates:
+        raise FileNotFoundError("Impossible to find creditcard.csv in the downloaded folder.")
+
+    src_csv = csv_candidates[0]
+    dest_csv = data_path / "creditcard.csv"
+
+    shutil.copy(src_csv, dest_csv)
+
+    print("File copied to :", dest_csv)
+    return str(dest_csv)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-d", "--download",
+        action="store_true",
+        help="Download and place creditcard.csv in data/"
+    )
+    args = parser.parse_args()
+
+    if args.download:
+        download_creditcard_dataset()
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
+
+    
+
+    
+

@@ -8,8 +8,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 
-from utils import set_seed, load_dataset, get_datasets, standardize, compute_scale_pos_weight, summarize_classification
-from mlp_class import MLP
+from sklearn.metrics import average_precision_score, confusion_matrix, classification_report
+
+from ..utils import set_seed, load_dataset, get_datasets, standardize, compute_scale_pos_weight, summarize
+from src.baselines.mlp_class import MLP
 
 def train_epoch(model, loader, optimizer, loss_fn, device):
     model.train()
@@ -46,7 +48,7 @@ def predict_proba(model, loader, device):
 
 def main():
     parser = argparse.ArgumentParser(description="Baseline MLP - Credit Card Fraud")
-    parser.add_argument("--data-path", type=str, default="creditcard.csv")
+    parser.add_argument("--data-path", type=str, default="data/creditcard.csv")
     parser.add_argument("--seed", type=int, default=9)
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--epochs", type=int, default=10)
@@ -90,9 +92,9 @@ def main():
 
     # final evaluation
     yv, pv = predict_proba(model, val_loader, device)
-    summarize_classification(yv, pv, title="Baseline MLP - Validation")
+    summarize(yv, pv, title="Baseline MLP - Validation")
     yt, pt = predict_proba(model, test_loader, device)
-    summarize_classification(yt, pt, title="Baseline MLP - Test")
+    summarize(yt, pt, title="Baseline MLP - Test")
 
 
     # save model and preprocessing objects for later use in attacks
@@ -106,7 +108,5 @@ def main():
     print("\nSaved: mlp_baseline.pt, scaler.joblib, q_bounds.npz, X_test.npy, y_test.npy")
 
     
-
-
 if __name__ == "__main__":
     main()
