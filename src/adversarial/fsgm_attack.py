@@ -48,7 +48,7 @@ def fgsm_attack_batch(model, loss_fn, Xb, yb, epsilon, low, high):
 def main():
     parser = argparse.ArgumentParser(description="FGSM sur MLP - Credit Card Fraud")
     parser.add_argument("--epsilon", type=float, default=0.1, help="Perturbation strength for FGSM attack")
-    parser.add_argument("--batch-size", type=int, default=1024, help="Batch size for generating adversarial examples")
+    parser.add_argument("--batch-size", type=int, default=512, help="Batch size for generating adversarial examples")
     parser.add_argument("--model_folder", type=str, default="baseline_model", help="Folder where the baseline model and preprocessing objects are saved")
     args = parser.parse_args()
 

@@ -51,8 +51,8 @@ def main():
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--epsilon", type=float, default=0.1, help="FGSM (espace standardisé)")
-    parser.add_argument("--mix-ratio", type=float, default=0.5, help="ratio d'adversarial dans le batch")
+    parser.add_argument("--epsilon", type=float, default=0.1, help="Perturbation strength for FGSM attack")
+    parser.add_argument("--mix-ratio", type=float, default=0.5, help="Ratio of adversarial samples in the mixed training batches")
     args = parser.parse_args()
 
     set_seed(args.seed)
