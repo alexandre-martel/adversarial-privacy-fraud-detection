@@ -5,3 +5,4 @@ torch
 joblib
 pandas
 kagglehub
+opacus

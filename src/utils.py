@@ -6,10 +6,12 @@ import argparse
 import os
 import shutil
 from pathlib import Path
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score, average_precision_score, confusion_matrix, classification_report
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score, average_precision_score, confusion_matrix, classification_report, precision_recall_curve
 
 def set_seed(seed=9):
     import random, os
@@ -94,6 +96,48 @@ def summarize(y_true, y_proba, title="Metrics"):
     print("Classification report:\n", classification_report(y_true, y_pred, zero_division=0))
     print("Confusion matrix:\n", confusion_matrix(y_true, y_pred))
 
+def plot_training_history(history, save_path):
+    epochs = range(1, len(history['train_loss']) + 1)
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss', color='tab:red')
+    ax1.plot(epochs, history['train_loss'], color='tab:red', marker='o', label='Train Loss')
+    ax1.tick_params(axis='y', labelcolor='tab:red')
+
+    ax2 = ax1.twinx()
+    ax2.set_ylabel('Val PR-AUC', color='tab:blue')
+    ax2.plot(epochs, history['val_prauc'], color='tab:blue', marker='s', label='Val PR-AUC')
+    ax2.tick_params(axis='y', labelcolor='tab:blue')
+
+    plt.title('Baseline MLP: Training Convergence')
+    fig.tight_layout()
+    plt.savefig(os.path.join(save_path, "learning_curves.png"))
+    plt.close()
+
+def plot_evaluation_results(y_true, y_proba, save_path):
+    # Confusion Matrix Heatmap
+    y_pred = (y_proba >= 0.5).astype(int)
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
+    plt.title('Confusion Matrix - Baseline MLP (Test)')
+    plt.ylabel('Actual Label')
+    plt.xlabel('Predicted Label')
+    plt.savefig(os.path.join(save_path, "confusion_matrix.png"))
+    plt.close()
+
+    # Precision-Recall Curve
+    precision, recall, _ = precision_recall_curve(y_true, y_proba)
+    plt.figure(figsize=(8, 6))
+    plt.plot(recall, precision, color='darkorange', lw=2, label=f'PR-AUC = {average_precision_score(y_true, y_proba):.3f}')
+    plt.fill_between(recall, precision, step='post', alpha=0.2, color='orange')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve (Fraud Class)')
+    plt.legend(loc="upper right")
+    plt.savefig(os.path.join(save_path, "pr_curve.png"))
+    plt.close()
 
 def download_creditcard_dataset():
     data_dir = "data"

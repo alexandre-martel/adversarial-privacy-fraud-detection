@@ -2,6 +2,7 @@
 import argparse
 import numpy as np
 import joblib
+import os 
 
 from sklearn.metrics import average_precision_score
 import torch
@@ -9,11 +10,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 
-from src.utils import set_seed, load_dataset, get_datasets, standardize, compute_scale_pos_weight, summarize
+from src.utils import set_seed, load_dataset, get_datasets, standardize, compute_scale_pos_weight, summarize, plot_training_history, plot_evaluation_results
 from src.baselines.mlp_class import MLP
 from src.baselines.baseline_mlp import predict_proba
 from src.adversarial.fsgm_attack import fgsm_attack_batch
-from sklearn.metrics._ranking import average_precision_score
 
 # Training epoch with mixed clean + adversarial samples, with a given ratio of adversarial in the batch.
 # The base ratio is 1/2, but we can change it to have more or less adversarial samples in the batch.
@@ -24,9 +24,11 @@ def train_epoch_mixed(model, loader, optimizer, loss_fn, epsilon, low, high, dev
         xb = xb.to(device)
         yb = yb.to(device)
 
+        model.eval()  # Set model to eval mode for attack generation
         # generate adversarial examples for the whole batch
         xb_adv = fgsm_attack_batch(model, loss_fn, xb, yb, epsilon, low, high)
 
+        model.train()  # Back to train mode for the optimization step
         # Mix clean and adversarial examples
         n = xb.size(0)
         n_adv = int(mix_ratio * n)
@@ -45,6 +47,9 @@ def train_epoch_mixed(model, loader, optimizer, loss_fn, epsilon, low, high, dev
     return total_loss / len(loader.dataset)
 
 def main():
+    model_folder = "adversarial_model"
+    os.makedirs(model_folder, exist_ok=True)
+
     parser = argparse.ArgumentParser(description="Adversarial Training (MLP against FGSM) - Credit Card Fraud")
     parser.add_argument("--data-path", type=str, default="data/creditcard.csv")
     parser.add_argument("--seed", type=int, default=42)
@@ -77,6 +82,8 @@ def main():
     pos_weight = torch.tensor([compute_scale_pos_weight(y_tr)], dtype=torch.float32, device=device)
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    
+    history = {"train_loss": [], "val_prauc": []}
 
     # Bornes clamp for FSM attack
     low = torch.tensor(q_low, dtype=torch.float32, device=device).unsqueeze(0)
@@ -88,16 +95,24 @@ def main():
                                     epsilon=args.epsilon, low=low, high=high,
                                     device=device, mix_ratio=args.mix_ratio)
         yv, pv = predict_proba(model, val_loader, device)
+        history["train_loss"].append(tr_loss)
+        history["val_prauc"].append(average_precision_score(yv, pv))
         print(f"Epoch {epoch:02d} | train loss: {tr_loss:.5f} | val PR-AUC: {average_precision_score(yv, pv):.4f}")
-
+    
+    plot_training_history(history, save_path=model_folder)
+    
     yv, pv = predict_proba(model, val_loader, device)
     # summarize(yv, pv, title="Adversarial MLP - clean Validation")
     yt, pt = predict_proba(model, test_loader, device)
     summarize(yt, pt, title="Adversarial MLP - clean Test")
+    plot_evaluation_results(yt, pt, save_path=model_folder)
+    os.rename(os.path.join(model_folder, "pr_curve.png"), os.path.join(model_folder, "clean_pr_curve.png"))
+    os.rename(os.path.join(model_folder, "confusion_matrix.png"), os.path.join(model_folder, "clean_confusion_matrix.png"))
 
     # Adversarial evaluation on test
     adv_probs = []
     adv_targets = []
+    model.eval()
     for xb, yb in test_loader:
         Xb_adv = fgsm_attack_batch(model, loss_fn, xb, yb, args.epsilon, low, high)
         with torch.no_grad():
@@ -107,13 +122,16 @@ def main():
     adv_probs = np.concatenate(adv_probs)
     adv_targets = np.concatenate(adv_targets)
     summarize(adv_targets, adv_probs, title=f"Adversarial MLP - attack Test (FGSM, eps={args.epsilon})")
-
+    plot_evaluation_results(adv_targets, adv_probs, save_path=model_folder)
+    os.rename(f"{model_folder}/pr_curve.png", f"{model_folder}/adv_pr_curve.png")
+    os.rename(f"{model_folder}/confusion_matrix.png", f"{model_folder}/adv_confusion_matrix.png")
+    
     # save model and preprocessing objects 
-    torch.save(model.state_dict(), "adversarial_model/adversarial_mlp.pt")
-    joblib.dump(scaler, "adversarial_model/scaler.joblib")
-    np.savez("adversarial_model/q_bounds.npz", low=q_low, high=q_high)
+    torch.save(model.state_dict(), f"{model_folder}/adversarial_mlp.pt")
+    joblib.dump(scaler, f"{model_folder}/scaler.joblib")
+    np.savez(f"{model_folder}/q_bounds.npz", low=q_low, high=q_high)
     print("\n Saved: adversarial_mlp.pt, scaler.joblib, q_bounds.npz")
-
+    
 
 if __name__ == "__main__":
     main()

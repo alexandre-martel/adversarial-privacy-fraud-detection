@@ -2,14 +2,16 @@
 import argparse
 import numpy as np
 import joblib
+import os
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.metrics import (
     classification_report, confusion_matrix,
-    accuracy_score, precision_recall_fscore_support, roc_auc_score, average_precision_score
+    accuracy_score, precision_recall_fscore_support, roc_auc_score, average_precision_score, 
+    precision_recall_curve
 )
-
+import matplotlib.pyplot as plt
 from src.utils import compute_scale_pos_weight, summarize
 from src.baselines.mlp_class import MLP
 
@@ -45,7 +47,44 @@ def fgsm_attack_batch(model, loss_fn, Xb, yb, epsilon, low, high):
 
     return X_adv.detach()
 
+def recall_pos(y, yhat):
+    tp = ((y == 1) & (yhat == 1)).sum()
+    fn = ((y == 1) & (yhat == 0)).sum()
+    return 0.0 if (tp + fn) == 0 else tp / (tp + fn)
+
+def plot_attack_results(y_true, proba_clean, proba_adv, epsilon, save_path="baseline_model"):
+    # PR curve comparison
+    prec_c, rec_c, _ = precision_recall_curve(y_true, proba_clean)
+    prec_a, rec_a, _ = precision_recall_curve(y_true, proba_adv)
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(rec_c, prec_c, label=f"Clean (AUC={average_precision_score(y_true, proba_clean):.3f})", color='blue')
+    plt.plot(rec_a, prec_a, label=f"Adversarial (AUC={average_precision_score(y_true, proba_adv):.3f})", color='red', linestyle='--')
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title(f'PR Curve Collapse under FGSM (eps={epsilon})')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig(f"{save_path}/attack_pr_comparison.png")
+
+    # Bar Chart Recall Drop
+    r_before = recall_pos(y_true, (proba_clean >= 0.5).astype(int))
+    r_after = recall_pos(y_true, (proba_adv >= 0.5).astype(int))
+    
+    plt.figure(figsize=(6, 5))
+    plt.bar(['Before Attack', 'After Attack'], [r_before, r_after], color=['blue', 'red'])
+    plt.ylabel('Recall (Fraud Class)')
+    plt.title(f'Security Vulnerability (eps={epsilon})')
+    plt.ylim(0, 1)
+    plt.text(0, r_before + 0.02, f'{r_before:.2%}', ha='center', fontweight='bold')
+    plt.text(1, r_after + 0.02, f'{r_after:.2%}', ha='center', fontweight='bold')
+    plt.savefig(f"{save_path}/recall_drop.png")
+    plt.close()
+        
+    
 def main():
+    os.makedirs("attack_results", exist_ok=True)
+    
     parser = argparse.ArgumentParser(description="FGSM sur MLP - Credit Card Fraud")
     parser.add_argument("--epsilon", type=float, default=0.1, help="Perturbation strength for FGSM attack")
     parser.add_argument("--batch-size", type=int, default=512, help="Batch size for generating adversarial examples")
@@ -84,8 +123,8 @@ def main():
             ys.append(yb)
         logits = torch.cat(logits)
         ys = torch.cat(ys).numpy()
-        proba = torch.sigmoid(logits).numpy()
-    summarize(ys, proba, title="MLP - Test (avant attaque)")
+        proba_clean = torch.sigmoid(logits).numpy()
+    summarize(ys, proba_clean, title="MLP - Test (avant attaque)")
 
     # FGSM + evaluation after attack
     low = torch.tensor(q_low, dtype=torch.float32, device=device).unsqueeze(0)
@@ -104,14 +143,12 @@ def main():
     adv_targets = np.concatenate(adv_targets)
     summarize(adv_targets, adv_probs, title=f"MLP - Test (FGSM, eps={args.epsilon})")
 
+    plot_attack_results(ys, proba_clean, adv_probs, args.epsilon, save_path="attack_results")
+    
     # Focus recall on fraud class (positive class), which is the most important metric for this use case. 
     # We want to see how much it drops under attack.
-    y_pred_clean = (proba >= 0.5).astype(int)
+    y_pred_clean = (proba_clean >= 0.5).astype(int)
     y_pred_adv = (adv_probs >= 0.5).astype(int)
-    def recall_pos(y, yhat):
-        tp = ((y==1) & (yhat==1)).sum()
-        fn = ((y==1) & (yhat==0)).sum()
-        return 0.0 if (tp+fn)==0 else tp/(tp+fn)
     r_before = recall_pos(ys, y_pred_clean)
     r_after  = recall_pos(adv_targets, y_pred_adv)
     print(f"\nVariation of the Recall (fraud class) under FGSM: {r_after - r_before:+.4f} (before={r_before:.4f}, after={r_after:.4f})")

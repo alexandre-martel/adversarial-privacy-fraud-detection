@@ -2,16 +2,20 @@ import argparse
 import numpy as np
 import pandas as pd
 import joblib
+import os
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 
-from sklearn.metrics import average_precision_score, confusion_matrix, classification_report
+from sklearn.metrics import average_precision_score, confusion_matrix, classification_report, precision_recall_curve
 
-from ..utils import set_seed, load_dataset, get_datasets, standardize, compute_scale_pos_weight, summarize
+from ..utils import set_seed, load_dataset, get_datasets, standardize, compute_scale_pos_weight, summarize, plot_training_history, plot_evaluation_results
 from src.baselines.mlp_class import MLP
+
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 def train_epoch(model, loader, optimizer, loss_fn, device):
     model.train()
@@ -47,6 +51,8 @@ def predict_proba(model, loader, device):
 
 
 def main():
+    os.makedirs("baseline_model", exist_ok=True)
+
     parser = argparse.ArgumentParser(description="Baseline MLP - Credit Card Fraud")
     parser.add_argument("--data-path", type=str, default="data/creditcard.csv")
     parser.add_argument("--seed", type=int, default=9)
@@ -81,20 +87,28 @@ def main():
     loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
+    history = {'train_loss': [], 'val_prauc': []}
+    
     # training loop
     for epoch in range(1, args.epochs + 1):
         
         tr_loss = train_epoch(model, train_loader, optimizer, loss_fn, device)
         yv, pv = predict_proba(model, val_loader, device)
-        print(f"Epoch {epoch:02d} | train loss: {tr_loss:.5f} | val PR-AUC: {average_precision_score(yv, pv):.4f}")
+        prauc = average_precision_score(yv, pv)
+        
+        history['train_loss'].append(tr_loss)
+        history['val_prauc'].append(prauc)
+        print(f"Epoch {epoch:02d} | train loss: {tr_loss:.5f} | val PR-AUC: {prauc:.4f}")
 
-
-
+    plot_training_history(history, save_path="baseline_model")
+    
     # final evaluation
     yv, pv = predict_proba(model, val_loader, device)
     summarize(yv, pv, title="Baseline MLP - Validation")
+
     yt, pt = predict_proba(model, test_loader, device)
     summarize(yt, pt, title="Baseline MLP - Test")
+    plot_evaluation_results(yt, pt, save_path="baseline_model")
 
 
     # save model and preprocessing objects 
