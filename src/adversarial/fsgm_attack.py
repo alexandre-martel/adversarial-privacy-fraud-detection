@@ -12,7 +12,10 @@ from sklearn.metrics import (
     precision_recall_curve
 )
 import matplotlib.pyplot as plt
-from src.utils import compute_scale_pos_weight, summarize
+from src.utils import (
+    compute_scale_pos_weight, summarize, 
+    plot_evaluation_results, plot_epsilon_study, 
+    recall_pos)
 from src.baselines.mlp_class import MLP
 
 # THe low and high bounds for the FGSM attack are computed as the 0.5% and 99.5% quantiles of each feature 
@@ -32,9 +35,11 @@ def fgsm_attack_batch(model, loss_fn, Xb, yb, epsilon, low, high):
         low: tensor of shape (1, n_features) with the per-feature lower bounds (quantiles) 
         high: tensor of shape (1, n_features) with the per-feature upper bounds (quantiles)
     """
-
-    Xb = Xb.clone().detach().to("cpu").requires_grad_(True)
-    yb = yb.to("cpu")
+    model.eval()  # Ensure model is in eval mode for consistent gradient 
+    
+    device = Xb.device
+    Xb = Xb.clone().detach().requires_grad_(True)
+    yb = yb.to(device)
 
     model.zero_grad()
     logits = model(Xb)
@@ -43,14 +48,10 @@ def fgsm_attack_batch(model, loss_fn, Xb, yb, epsilon, low, high):
 
     with torch.no_grad():
         X_adv = Xb + epsilon * Xb.grad.sign()
-        X_adv = torch.max(torch.min(X_adv, high), low)
+        X_adv = torch.max(torch.min(X_adv, high.to(device)), low.to(device))
 
     return X_adv.detach()
 
-def recall_pos(y, yhat):
-    tp = ((y == 1) & (yhat == 1)).sum()
-    fn = ((y == 1) & (yhat == 0)).sum()
-    return 0.0 if (tp + fn) == 0 else tp / (tp + fn)
 
 def plot_attack_results(y_true, proba_clean, proba_adv, epsilon, save_path="baseline_model"):
     # PR curve comparison
@@ -80,15 +81,18 @@ def plot_attack_results(y_true, proba_clean, proba_adv, epsilon, save_path="base
     plt.text(1, r_after + 0.02, f'{r_after:.2%}', ha='center', fontweight='bold')
     plt.savefig(f"{save_path}/recall_drop.png")
     plt.close()
+
         
     
 def main():
-    os.makedirs("attack_results", exist_ok=True)
+    results_folder = "results/fgsm_attack"
+    os.makedirs(results_folder, exist_ok=True)
     
     parser = argparse.ArgumentParser(description="FGSM sur MLP - Credit Card Fraud")
     parser.add_argument("--epsilon", type=float, default=0.1, help="Perturbation strength for FGSM attack")
     parser.add_argument("--batch-size", type=int, default=512, help="Batch size for generating adversarial examples")
-    parser.add_argument("--model_folder", type=str, default="baseline_model", help="Folder where the baseline model and preprocessing objects are saved")
+    parser.add_argument("--model_folder", type=str, default="results/baseline_model", help="Folder where the baseline model and preprocessing objects are saved")
+    parser.add_argument("--with_epsilon_study", default=False, action="store_true", help="If set to False, only run the attack for the specified epsilon, without doing a study over multiple epsilons.")
     args = parser.parse_args()
 
     X_test = np.load(f"{args.model_folder}/X_test.npy")
@@ -113,6 +117,7 @@ def main():
     test_loader = DataLoader(TensorDataset(Xte, yte), batch_size=args.batch_size)
 
     # Evaluation before attack
+    print(f"--- Evaluation before FGSM---")
     model.eval()
     with torch.no_grad():
         logits = []
@@ -127,6 +132,7 @@ def main():
     summarize(ys, proba_clean, title="MLP - Test (avant attaque)")
 
     # FGSM + evaluation after attack
+    print(f"--- Detailed Audit for Epsilon = {args.epsilon} ---")
     low = torch.tensor(q_low, dtype=torch.float32, device=device).unsqueeze(0)
     high = torch.tensor(q_high, dtype=torch.float32, device=device).unsqueeze(0)
 
@@ -142,8 +148,11 @@ def main():
     adv_probs = np.concatenate(adv_probs)
     adv_targets = np.concatenate(adv_targets)
     summarize(adv_targets, adv_probs, title=f"MLP - Test (FGSM, eps={args.epsilon})")
+    plot_evaluation_results(adv_targets, adv_probs, save_path=f"{results_folder}")
+    os.rename(f"{results_folder}/pr_curve.png", f"{results_folder}/pr_curve_adv_eps_{args.epsilon}.png")
+    os.rename(f"{results_folder}/confusion_matrix.png", f"{results_folder}/confusion_matrix_adv_eps_{args.epsilon}.png")
 
-    plot_attack_results(ys, proba_clean, adv_probs, args.epsilon, save_path="attack_results")
+    plot_attack_results(ys, proba_clean, adv_probs, args.epsilon, save_path=f"{results_folder}")
     
     # Focus recall on fraud class (positive class), which is the most important metric for this use case. 
     # We want to see how much it drops under attack.
@@ -153,6 +162,38 @@ def main():
     r_after  = recall_pos(adv_targets, y_pred_adv)
     print(f"\nVariation of the Recall (fraud class) under FGSM: {r_after - r_before:+.4f} (before={r_before:.4f}, after={r_after:.4f})")
 
+    
+    if args.with_epsilon_study:
+        epsilons = [0, 0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 1.0]
+        print(f"Starting Epsilon Study on {len(epsilons)} values...")
+
+        study_recalls = []
+        study_aucs = []
+
+        for eps in epsilons:
+            adv_probs = []
+            adv_targets = []
+            
+            # Attack for current epsilon
+            for xb, yb in test_loader:
+                Xb_adv = fgsm_attack_batch(model, loss_fn, xb, yb, eps, low, high)
+                with torch.no_grad():
+                    p = torch.sigmoid(model(Xb_adv)).cpu().numpy()
+                adv_probs.append(p)
+                adv_targets.append(yb.numpy())
+
+            adv_probs = np.concatenate(adv_probs)
+            adv_targets = np.concatenate(adv_targets)
+            
+            current_recall = recall_pos(adv_targets, (adv_probs >= 0.5).astype(int))
+            current_auc = average_precision_score(adv_targets, adv_probs)
+            
+            study_recalls.append(current_recall)
+            study_aucs.append(current_auc)
+            
+            print(f"Eps: {eps:.2f} | Recall: {current_recall:.4f} | PR-AUC: {current_auc:.4f}")
+
+        plot_epsilon_study(epsilons, study_recalls, study_aucs, save_path=f"{results_folder}")
 
 if __name__ == "__main__":
     main()

@@ -51,7 +51,8 @@ def predict_proba(model, loader, device):
 
 
 def main():
-    os.makedirs("baseline_model", exist_ok=True)
+    save_dir = "results/baseline_model"
+    os.makedirs(f"{save_dir}", exist_ok=True)
 
     parser = argparse.ArgumentParser(description="Baseline MLP - Credit Card Fraud")
     parser.add_argument("--data-path", type=str, default="data/creditcard.csv")
@@ -100,7 +101,7 @@ def main():
         history['val_prauc'].append(prauc)
         print(f"Epoch {epoch:02d} | train loss: {tr_loss:.5f} | val PR-AUC: {prauc:.4f}")
 
-    plot_training_history(history, save_path="baseline_model")
+    plot_training_history(history, save_path=f"{save_dir}")
     
     # final evaluation
     yv, pv = predict_proba(model, val_loader, device)
@@ -108,16 +109,16 @@ def main():
 
     yt, pt = predict_proba(model, test_loader, device)
     summarize(yt, pt, title="Baseline MLP - Test")
-    plot_evaluation_results(yt, pt, save_path="baseline_model")
+    plot_evaluation_results(yt, pt, save_path=f"{save_dir}")
 
 
     # save model and preprocessing objects 
-    torch.save(model.state_dict(), "baseline_model/mlp_baseline.pt")
-    joblib.dump(scaler, "baseline_model/scaler.joblib")
+    torch.save(model.state_dict(), f"{save_dir}/mlp_baseline.pt")
+    joblib.dump(scaler, f"{save_dir}/scaler.joblib")
 
-    np.savez("baseline_model/q_bounds.npz", low=q_low, high=q_high)
-    np.save("baseline_model/X_test.npy", X_te_s)
-    np.save("baseline_model/y_test.npy", y_te)
+    np.savez(f"{save_dir}/q_bounds.npz", low=q_low, high=q_high)
+    np.save(f"{save_dir}/X_test.npy", X_te_s)
+    np.save(f"{save_dir}/y_test.npy", y_te)
 
     print("\nSaved: mlp_baseline.pt, scaler.joblib, q_bounds.npz, X_test.npy, y_test.npy")
 

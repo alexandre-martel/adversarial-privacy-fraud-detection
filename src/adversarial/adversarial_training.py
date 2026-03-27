@@ -10,7 +10,11 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 
-from src.utils import set_seed, load_dataset, get_datasets, standardize, compute_scale_pos_weight, summarize, plot_training_history, plot_evaluation_results
+from src.utils import (
+    set_seed, load_dataset, get_datasets, standardize, 
+    compute_scale_pos_weight, summarize, 
+    plot_training_history, plot_evaluation_results, plot_epsilon_study, 
+    recall_pos)
 from src.baselines.mlp_class import MLP
 from src.baselines.baseline_mlp import predict_proba
 from src.adversarial.fsgm_attack import fgsm_attack_batch
@@ -46,18 +50,22 @@ def train_epoch_mixed(model, loader, optimizer, loss_fn, epsilon, low, high, dev
 
     return total_loss / len(loader.dataset)
 
+
+
 def main():
-    model_folder = "adversarial_model"
+    model_folder = "results/adversarial_model"
     os.makedirs(model_folder, exist_ok=True)
 
     parser = argparse.ArgumentParser(description="Adversarial Training (MLP against FGSM) - Credit Card Fraud")
     parser.add_argument("--data-path", type=str, default="data/creditcard.csv")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch-size", type=int, default=512)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epsilon", type=float, default=0.1, help="Perturbation strength for FGSM attack")
     parser.add_argument("--mix-ratio", type=float, default=0.5, help="Ratio of adversarial samples in the mixed training batches")
+    parser.add_argument("--with_epsilon_study", default=False, action="store_true", help="If set to False, only run the attack for the specified epsilon, without doing a study over multiple epsilons.")
+
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -132,6 +140,36 @@ def main():
     np.savez(f"{model_folder}/q_bounds.npz", low=q_low, high=q_high)
     print("\n Saved: adversarial_mlp.pt, scaler.joblib, q_bounds.npz")
     
+    if args.with_epsilon_study:
+        print("\n--- Starting Epsilon Study on Robust Model ---")
+        eps_list = [0, 0.01, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1]
+        study_recalls = []
+        study_aucs = []
+
+        model.eval()
+        for eps in eps_list:
+            adv_probs = []
+            adv_targets = []
+            
+            for xb, yb in test_loader:
+                xb_adv = fgsm_attack_batch(model, loss_fn, xb, yb, eps, low, high)
+                with torch.no_grad():
+                    p = torch.sigmoid(model(xb_adv.to(device))).cpu().numpy()
+                adv_probs.append(p)
+                adv_targets.append(yb.numpy())
+
+            adv_probs = np.concatenate(adv_probs)
+            adv_targets = np.concatenate(adv_targets)
+            
+            cur_recall = recall_pos(adv_targets, (adv_probs >= 0.5).astype(int))
+            cur_auc = average_precision_score(adv_targets, adv_probs)
+            
+            study_recalls.append(cur_recall)
+            study_aucs.append(cur_auc)
+            print(f"Eps: {eps:.2f} | Recall: {cur_recall:.4f} | PR-AUC: {cur_auc:.4f}")
+        
+        plot_epsilon_study(eps_list, study_recalls, study_aucs, save_path=f"{model_folder}")
+
 
 if __name__ == "__main__":
     main()

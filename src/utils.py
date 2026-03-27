@@ -74,6 +74,12 @@ def compute_scale_pos_weight(y):
         return 1.0
     return float(neg) / float(pos)
 
+def recall_pos(y, yhat):
+    """Compute recall for the positive class (fraud class)"""
+    tp = ((y == 1) & (yhat == 1)).sum()
+    fn = ((y == 1) & (yhat == 0)).sum()
+    return 0.0 if (tp + fn) == 0 else tp / (tp + fn)
+
 
 def summarize(y_true, y_proba, title="Metrics"):
     y_pred = (y_proba >= 0.5).astype(int)
@@ -139,6 +145,26 @@ def plot_evaluation_results(y_true, y_proba, save_path):
     plt.savefig(os.path.join(save_path, "pr_curve.png"))
     plt.close()
 
+def plot_epsilon_study(epsilons, recalls, au_prcs, save_path):
+    """Plot how the recall and PR-AUC evolve as we increase the epsilon of the FGSM attack."""
+    
+    plt.figure(figsize=(10, 6))
+    
+    # Plot Recall
+    plt.plot(epsilons, recalls, marker='o', linestyle='-', color='red', label='Recall (Fraud Class)')
+    # Plot PR-AUC
+    plt.plot(epsilons, au_prcs, marker='s', linestyle='--', color='darkblue', label='PR-AUC')
+    
+    plt.xlabel('Epsilon (Perturbation Strength)')
+    plt.ylabel('Score')
+    plt.title('Vulnerability Curve: Performance vs Attack Strength')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.ylim(0, 1.1)
+    
+    plt.savefig(f"{save_path}/epsilon_study.png")
+    plt.close()
+    
 def download_creditcard_dataset():
     data_dir = "data"
     print("Downloading dataset via kagglehub...")
